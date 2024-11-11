@@ -1,0 +1,514 @@
+// bus.cpp
+#include "bus.h"
+#include <iostream>
+
+Bus::Bus() {}
+
+void Bus::registerCache(Cache* cache) {
+    caches.push_back(cache);
+}
+
+void Bus::sendBusRd(int addr) {
+    std::lock_guard<std::mutex> lock(bus_mutex);
+    for (auto cache : caches) {
+        cache->snoopBusRd(addr);
+    }
+}
+
+void Bus::sendBusRdX(int addr) {
+    std::lock_guard<std::mutex> lock(bus_mutex);
+    for (auto cache : caches) {
+        cache->snoopBusRdX(addr);
+    }
+}
+
+void Bus::sendBusUpgr(int addr) {
+    std::lock_guard<std::mutex> lock(bus_mutex);
+    for (auto cache : caches) {
+        cache->snoopBusUpgr(addr);
+    }
+}
+
+
+// cache.cpp
+#include "cache.h"
+#include <iostream>
+
+
+Cache::Cache(int numBlocks) : blocks(numBlocks) {}
+
+uint64_t Cache::load(int addr) {
+    std::lock_guard<std::mutex> lock(cache_mutex);
+    int index = addr % blocks.size();
+
+    CacheBlock& block = blocks[index];
+
+    if (block.valid && block.tag == addr) {
+        //if (block.state == MESIState::Modified || block.state == MESIState::Exclusive || block.state == MESIState::Shared) {
+            return block.data; // Cache hit
+        //}
+    } else {
+        // Cache miss
+        std::cerr << "Cache miss at address" << addr << std::endl;
+        //block.state = MESIState::Exclusive; // Asignar estado luego de cargar de memoria
+        return 0;
+    }
+}
+
+
+void Cache::store(int addr, uint64_t value) {
+    std::lock_guard<std::mutex> lock(cache_mutex);
+    int index = addr % blocks.size();
+    CacheBlock& block = blocks[index];
+
+    block.data = value;
+    block.valid = true;
+    block.tag = addr;
+    block.state = MESIState::Modified; // Es modificado al escribir
+}
+
+void Cache::snoopBusRd(int addr) {
+    std::lock_guard<std::mutex> lock(cache_mutex);
+    int index = addr % blocks.size();
+    if (blocks[index].valid && blocks[index].tag == addr) {
+        if (blocks[index].state == MESIState::Modified || blocks[index].state == MESIState::Exclusive) {
+            blocks[index].state = MESIState::Shared;
+            // Adicionalmente, se debe manejar la escritura de vuelta a la memoria si está Modificado
+        }
+    }
+}
+
+void Cache::snoopBusRdX(int addr) {
+    std::lock_guard<std::mutex> lock(cache_mutex);
+    int index = addr % blocks.size();
+    if (blocks[index].valid && blocks[index].tag == addr) {
+        blocks[index].valid = false;
+        blocks[index].state = MESIState::Invalid;
+        // Adicionalmente, se debe manejar la escritura de vuelta a la memoria si está Modificado
+    }
+}
+
+void Cache::snoopBusUpgr(int addr) {
+    std::lock_guard<std::mutex> lock(cache_mutex);
+    int index = addr % blocks.size();
+    if (blocks[index].valid && blocks[index].tag == addr && blocks[index].state == MESIState::Shared) {
+        blocks[index].valid = false;
+        blocks[index].state = MESIState::Invalid;
+    }
+}
+
+
+// main.cpp
+/*
+#include <iostream>
+#include "PE.h"
+#include <mutex>
+#include <condition_variable>
+
+int main() {
+    std::mutex mutex;
+    std::condition_variable cond;
+
+    ProcessingElement pe1(1, &mutex, &cond);
+    ProcessingElement pe2(2, &mutex, &cond);
+
+    // Add instructions for PE1 and PE2
+    pe1.add_instruction({InstructionType::INC, 2});
+    pe1.add_instruction({InstructionType::INC, 2});
+    pe1.add_instruction({InstructionType::STORE, 2, 0x0});
+    pe1.add_instruction({InstructionType::LOAD, 0, 0x0});
+    pe1.add_instruction({InstructionType::DEC, 0});
+
+    pe2.add_instruction({InstructionType::INC, 3});
+    pe2.add_instruction({InstructionType::INC, 3});
+    pe2.add_instruction({InstructionType::INC, 3});
+    pe2.add_instruction({InstructionType::STORE, 3, 0x1});
+    pe2.add_instruction({InstructionType::LOAD, 1, 0x1});
+    pe2.add_instruction({InstructionType::DEC, 1});
+
+    std::cout << "Press 'y' to enable stepping" << std::endl;
+    char key;
+    std::cin >> key;
+
+    if (key == 'y') {
+        pe1.enableStepping();
+        pe2.enableStepping();
+    }
+
+    // Start both PEs
+    pe1.start();
+    pe2.start();
+
+    bool running_flag = true;
+
+    while (running_flag) {
+        std::cout << "Press 's' to step or any other key to exit: ";
+        std::cin >> key;
+        if (key == 's') {
+            cond.notify_all();
+        } else {
+            running_flag = false;
+            pe1.stop();
+            pe2.stop();
+        }
+    }
+
+    return 0;
+}
+*/
+
+
+
+/*
+#include "shared_memory.h"
+#include <iostream>
+
+int main() {
+    SharedMemory sharedMemory(256);
+
+    sharedMemory.write(10, 123456789);
+    std::cout << "Value at address 10: " << sharedMemory.read(10) << std::endl;
+
+    return 0;
+}
+*/
+
+#include <iostream>
+#include "cache.h"
+#include "bus.h"
+
+int main() {
+    // Crear el bus
+    Bus systemBus;
+
+    // Crear cachés y registrarlas en el bus
+    Cache cache1(8); // Supongamos 8 bloques de caché para simplificar
+    Cache cache2(8);
+    systemBus.registerCache(&cache1);
+    systemBus.registerCache(&cache2);
+
+    // Simulación de acceso a la misma dirección de memoria por diferentes cachés
+    int addr = 5; // Dirección de memoria de prueba
+
+    // Procesador 1 escribe en la dirección
+    cache1.store(addr, 100);
+    systemBus.sendBusRdX(addr);
+
+    // Procesador 2 intenta leer la misma dirección
+    std::cout << "Procesador 2 lee la dirección " << addr << ": " << cache2.load(addr) << std::endl;
+    systemBus.sendBusRd(addr);
+
+    // Verificar y mostrar los estados de la caché
+    // (Esto requeriría funciones de acceso que no hemos definido, es solo un ejemplo conceptual)
+    // Ejemplo: cache1.printCacheState();
+    // cache2.printCacheState();
+
+    return 0;
+}
+
+
+// PE.cpp
+#include "PE.h"
+#include <iostream>
+
+/*
+ProcessingElement::ProcessingElement(int id, std::mutex* mtx, std::condition_variable* cv) : pc(0), pe_id(id), mutex(mtx), cond(cv), registers({0, 0, 0, 0}), cache(64) {}
+
+void ProcessingElement::add_instruction(const Instruction& instr) {
+    instructions.push_back(instr);
+}
+
+void ProcessingElement::start() {
+    running = true;  // Ensure the PE starts running initially
+    if(steppingOn){
+        std::cout << "step" << std::endl;
+        thread = std::thread(&ProcessingElement::step, this);
+    }else{
+        std::cout << "runnig" << std::endl;
+        thread = std::thread(&ProcessingElement::execute, this);
+    }
+}
+
+void ProcessingElement::stop() {
+    running = false;  // Signal the PE to stop execution
+    cond->notify_one();     // Notify the PE to exit
+    if (thread.joinable()) {
+        thread.join();
+    }
+}
+
+void ProcessingElement::step() {
+    std::unique_lock<std::mutex> lock(*mutex);
+    while (running && pc < instructions.size()) {
+        cond->wait(lock);  // Wait until a signal to step or run the next instruction
+        if (!running) break;
+        handle_instruction(instructions[pc]);
+        pc++;
+    }
+}
+
+void ProcessingElement::enableStepping() {
+    steppingOn = true;
+}
+
+void ProcessingElement::execute() {
+    std::unique_lock<std::mutex> lock(*mutex); // Lock the mutex before waiting
+    while (running && !instructions.empty()) {
+        std::cout << "Si entró" << std::endl;
+        auto instr = instructions[pc];
+        handle_instruction(instr);
+        pc++;
+        if (pc >= static_cast<int>(instructions.size())) {
+            running = false;  // Reached end of program
+        }
+    }
+}
+
+void ProcessingElement::handle_instruction(const Instruction& instr) {
+    switch (instr.type) {
+        case InstructionType::LOAD:
+            std::cout << "PE " << pe_id << ": LOAD at address " << instr.addr << std::endl;
+            registers[instr.reg_index] = cache.load(instr.addr);
+            break;
+        case InstructionType::STORE:
+            cache.store(instr.addr, registers[instr.reg_index]);
+            std::cout << "PE " << pe_id << ": STORE at address " << instr.addr << std::endl;
+            break;
+        case InstructionType::INC:
+            std::cout << "PE " << pe_id << ": INC register index " << instr.reg_index << std::endl;
+            registers[instr.reg_index]++;
+            break;
+        case InstructionType::DEC:
+            std::cout << "PE " << pe_id << ": DEC register index " << instr.reg_index << std::endl;
+            registers[instr.reg_index]--;
+            break;
+        case InstructionType::JNZ: {
+            bool cond = (pc % 2 == 0); // Example condition
+            if (!cond) pc = instructions.size() - 1; // Jump to end of program
+            break;
+        }
+    }
+
+    printRegisterStatus();
+}
+
+void ProcessingElement::printRegisterStatus() {
+    std::cout << "PE " << pe_id << ": Register Status" << std::endl;
+    for (int i = 0; i < 4; ++i) {
+        std::cout << "Register R" << i << ": " << registers[i] << std::endl;
+    }
+}
+*/
+
+// shared_memory.cpp
+#include "shared_memory.h"
+#include <iostream>
+
+SharedMemory::SharedMemory(size_t size) : _data(size) {}
+
+uint64_t SharedMemory::read(int address) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    if (address < 0 || address >= _data.size()) {
+        std::cerr << "Error: Address out ouf bounds" << std::endl;
+        return 0;
+    } 
+    return _data[address];
+}
+
+void SharedMemory::write(int address, uint64_t value) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    if (address < 0 || address >= _data.size()) {
+        std::cerr << "Error: Address out of bounds" << std::endl;
+    }
+    _data[address] = value;
+}
+
+// testPE.cpp
+#include <iostream>
+#include "PE.h"
+#include <mutex>
+#include <condition_variable>
+
+int main() {
+    std::mutex mutex;
+    std::condition_variable cond;
+
+    ProcessingElement pe1(1, &mutex, &cond);
+    ProcessingElement pe2(2, &mutex, &cond);
+
+    // Add instructions for PE1 and PE2
+    pe1.add_instruction({InstructionType::LOAD, 0, 5});
+    pe1.add_instruction({InstructionType::INC, 1});
+    pe1.add_instruction({InstructionType::STORE, 2});
+    pe1.add_instruction({InstructionType::DEC, 3});
+
+    pe2.add_instruction({InstructionType::LOAD, 0, 5});
+    pe2.add_instruction({InstructionType::INC, 3});
+    pe2.add_instruction({InstructionType::STORE, 2});
+    pe2.add_instruction({InstructionType::DEC, 1});
+
+    // Start both PEs
+    pe1.start();
+    pe2.start();
+
+    bool running_flag = true;
+    char key;
+
+    while (running_flag) {
+        std::cout << "Press 's' to step or any other key to exit: ";
+        std::cin >> key;
+        if (key == 's') {
+            pe1.step();
+            pe2.step();
+        } else {
+            running_flag = false;
+            pe1.stop();
+            pe2.stop();
+        }
+    }
+
+    return 0;
+}
+
+// bus.h
+#ifndef BUS_H
+#define BUS_H
+
+#include <vector>
+#include <mutex>
+#include "cache.h"
+
+class Bus {
+public:
+    Bus();
+    void registerCache(Cache* cache);
+    void sendBusRd(int addr);
+    void sendBusRdX(int addr);
+    void sendBusUpgr(int addr);
+
+private:
+    std::vector<Cache*> caches;
+    std::mutex bus_mutex;
+};
+
+#endif // BUS_H
+
+
+// cache.h
+#ifndef CACHE_H
+#define CACHE_H
+
+#include <vector>
+#include <mutex>
+
+enum class MESIState { Modified, Exclusive, Shared, Invalid };
+
+// Estructura para representar una línea de caché
+struct CacheBlock {
+    uint64_t data;
+    bool valid;
+    int tag;
+
+    MESIState state;
+
+    CacheBlock() : data(0), valid(false), tag(-1), state(MESIState::Invalid) {}
+};
+
+class Cache {
+public:
+    Cache(int numBlocks);
+
+    uint64_t load(int addr);
+    void store(int addr, uint64_t value);
+    void processBusTransaction(int addr, MESIState transactionType); // Placeholder para interacción MESI
+
+    void snoopBusRd(int addr);
+    void snoopBusRdX(int addr);
+    void snoopBusUpgr(int addr);
+
+private:
+    std::vector<CacheBlock> blocks;
+    std::mutex cache_mutex; // Mutex para sincronizar el acceso a la caché
+};
+
+#endif // CACHE_H
+
+
+// PE.h
+#ifndef PE_H
+#define PE_H
+
+#include <iostream>
+#include <vector>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include "cache.h"
+
+// Define Instruction enum for different types of instructions.
+enum class InstructionType { LOAD, STORE, INC, DEC, JNZ };
+
+struct Instruction {
+    InstructionType type;
+    int reg_index;  // Register index
+    int addr;       // Address used in LOAD and STORE
+    std::string label;  // Label used by JNZ
+
+    Instruction(InstructionType t = InstructionType::LOAD, int r = -1, int a = -1, const std::string& l = "") : type(t), reg_index(r), addr(a), label(l) {}
+};
+
+class ProcessingElement {
+public:
+    ProcessingElement(int id, std::mutex* mtx, std::condition_variable* cv);
+    
+    void add_instruction(const Instruction& instr);
+    void start();
+    void stop();
+    void step();
+    void enableStepping();
+
+private:
+    int pc;                   // Program counter
+    int pe_id;
+    std::vector<Instruction> instructions;
+    std::vector<int> registers;
+
+    std::thread thread;
+    bool running = false;      // Whether the PE should keep executing
+    bool steppingOn = false;
+
+    std::mutex* mutex;
+    std::condition_variable* cond;
+
+    Cache cache;
+
+    void execute();
+    void handle_instruction(const Instruction& instr);
+    void printRegisterStatus();
+};
+
+#endif
+
+
+// shared_memory.h
+#ifndef SHARED_MEMORY_H
+#define SHARED_MEMORY_H
+
+#include <vector>
+#include <mutex>
+#include <thread>
+
+class SharedMemory {
+    public:
+        SharedMemory(size_t size);
+
+        uint64_t read(int address);
+        void write(int address, uint64_t value);
+
+    private:
+        std::vector<uint64_t> _data; // Vector que simula la memoria con datos de 64 bits
+        std::mutex _mutex;           // Mutex para sincronizar el acceso a la memoria
+};
+
+#endif // SHARED_MEMORY_H
+
