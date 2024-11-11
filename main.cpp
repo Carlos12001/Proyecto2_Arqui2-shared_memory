@@ -1,8 +1,9 @@
 /*
-#include <iostream>
-#include "PE.h"
-#include <mutex>
 #include <condition_variable>
+#include <iostream>
+#include <mutex>
+
+#include "PE.h"
 
 int main() {
     std::mutex mutex;
@@ -56,11 +57,10 @@ int main() {
 }
 */
 
-
-
 /*
-#include "shared_memory.h"
 #include <iostream>
+
+#include "shared_memory.h"
 
 int main() {
     SharedMemory sharedMemory(256);
@@ -72,35 +72,39 @@ int main() {
 }
 */
 
+#include <QApplication>
 #include <iostream>
-#include "cache.h"
+
 #include "bus.h"
+#include "cache.h"
+#include "mainwindow.h"
 
-int main() {
-    // Crear el bus
-    Bus systemBus;
+int main(int argc, char* argv[]) {
+  // Crear el bus
+  Bus systemBus;
 
-    // Crear cachés y registrarlas en el bus
-    Cache cache1(8); // Supongamos 8 bloques de caché para simplificar
-    Cache cache2(8);
-    systemBus.registerCache(&cache1);
-    systemBus.registerCache(&cache2);
+  // Crear cachés y registrarlas en el bus
+  Cache cache1(8);  // Supongamos 8 bloques de caché para simplificar
+  Cache cache2(8);
+  systemBus.registerCache(&cache1);
+  systemBus.registerCache(&cache2);
 
-    // Simulación de acceso a la misma dirección de memoria por diferentes cachés
-    int addr = 5; // Dirección de memoria de prueba
+  // Simulación de acceso a la misma dirección de memoria por diferentes cachés
+  int addr = 5;  // Dirección de memoria de prueba
 
-    // Procesador 1 escribe en la dirección
-    cache1.store(addr, 100);
-    systemBus.sendBusRdX(addr);
+  // Procesador 1 escribe en la dirección
+  cache1.store(addr, 100);
+  systemBus.sendBusRdX(addr);
 
-    // Procesador 2 intenta leer la misma dirección
-    std::cout << "Procesador 2 lee la dirección " << addr << ": " << cache2.load(addr) << std::endl;
-    systemBus.sendBusRd(addr);
+  // Procesador 2 intenta leer la misma dirección
+  std::cout << "Procesador 2 lee la dirección " << addr << ": "
+            << cache2.load(addr) << std::endl;
+  systemBus.sendBusRd(addr);
 
-    // Verificar y mostrar los estados de la caché
-    // (Esto requeriría funciones de acceso que no hemos definido, es solo un ejemplo conceptual)
-    // Ejemplo: cache1.printCacheState();
-    // cache2.printCacheState();
+  QApplication app(argc, argv);
 
-    return 0;
+  MainWindow mainWindow;
+  mainWindow.show();
+
+  return app.exec();
 }
