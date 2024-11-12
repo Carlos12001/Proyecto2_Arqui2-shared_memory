@@ -5,7 +5,6 @@
 #include <mutex>
 #include <vector>
 
-#include "bus.h"
 #include "shared_memory.h"
 
 enum class MESIState { Modified, Exclusive, Shared, Invalid };
@@ -32,16 +31,17 @@ class Cache {
   void snoopBusRd(int addr);
   void snoopBusRdX(int addr);
   void snoopBusUpgr(int addr);
-  void reset();  // Agrega esta línea
+
   int getNumBlocks() const;
   CacheBlock getBlock(int index) const;
+
+  void reset();
 
  private:
   std::vector<CacheBlock> blocks;
   std::mutex cache_mutex;
   SharedMemory *sharedMemory;
 
-  // Métodos auxiliares
   int findBlock(int addr) const;
   void fetchFromMemory(int addr, int index);
 };

@@ -1,13 +1,12 @@
+// shared_memory.cpp
 #include "shared_memory.h"
-
-#include <iostream>
 
 SharedMemory::SharedMemory(size_t size) : _data(size) {}
 
 uint64_t SharedMemory::read(int address) {
   std::lock_guard<std::mutex> lock(_mutex);
-  if (address < 0 || address >= _data.size()) {
-    std::cerr << "Error: Address out ouf bounds" << std::endl;
+  if (address < 0 || address >= static_cast<int>(_data.size())) {
+    // Manejo de errores
     return 0;
   }
   return _data[address];
@@ -15,8 +14,9 @@ uint64_t SharedMemory::read(int address) {
 
 void SharedMemory::write(int address, uint64_t value) {
   std::lock_guard<std::mutex> lock(_mutex);
-  if (address < 0 || address >= _data.size()) {
-    std::cerr << "Error: Address out of bounds" << std::endl;
+  if (address < 0 || address >= static_cast<int>(_data.size())) {
+    // Manejo de errores
+    return;
   }
   _data[address] = value;
 }

@@ -1,170 +1,214 @@
-// mainwindow.cpp
 #include "mainwindow.h"
 
-#include <QHeaderView>  // Agrega esta línea
+#include <QGraphicsLineItem>
+#include <QGraphicsProxyWidget>
+#include <QGraphicsTextItem>
+#include <QHeaderView>
 
 MainWindow::MainWindow(QWidget *parent)
-    : QMainWindow(parent),
-      cache0(8, &sharedMemory),
-      cache1(8, &sharedMemory),
-      sharedMemory(256),
-      busCycles(0) {
+    : QMainWindow(parent), sharedMemory(256), busCycles(0) {
   setupUI();
 
-  // Registrar las cachés en el bus
-  systemBus.registerCache(&cache0);
-  systemBus.registerCache(&cache1);
+  // Crear cachés y registrarlas en el bus
+  for (int i = 0; i < 3; ++i) {
+    Cache *cache = new Cache(8, &sharedMemory);
+    caches.push_back(cache);
+    systemBus.registerCache(cache);
+  }
 
-  // Conectar las señales de los botones con los slots
-  connect(readButton, &QPushButton::clicked, this,
-          &MainWindow::on_readButton_clicked);
-  connect(writeButton, &QPushButton::clicked, this,
-          &MainWindow::on_writeButton_clicked);
+  // Conectar los botones de CPUs
+  for (int cpuId = 0; cpuId < 3; ++cpuId) {
+    for (int addr = 0; addr < 4; ++addr) {
+      connect(cpuReadButtons[cpuId * 4 + addr], &QPushButton::clicked,
+              [=]() { on_cpuReadButton_clicked(cpuId, addr); });
+      connect(cpuWriteButtons[cpuId * 4 + addr], &QPushButton::clicked,
+              [=]() { on_cpuWriteButton_clicked(cpuId, addr); });
+    }
+  }
+
+  // Conectar botones de control
   connect(resetButton, &QPushButton::clicked, this,
           &MainWindow::on_resetButton_clicked);
   connect(helpButton, &QPushButton::clicked, this,
           &MainWindow::on_helpButton_clicked);
 
-  // Configurar el temporizador para actualizar la interfaz periódicamente
+  // Configurar el temporizador para actualizaciones periódicas
   timer = new QTimer(this);
   connect(timer, &QTimer::timeout, this, &MainWindow::updateDisplays);
-  timer->start(500);  // Actualizar cada 500 ms
+  timer->start(500);
 
   // Actualizar la interfaz inicialmente
   updateDisplays();
 }
 
-MainWindow::~MainWindow() {}
+MainWindow::~MainWindow() {
+  // Liberar memoria
+  for (auto cache : caches) {
+    delete cache;
+  }
+}
 
 void MainWindow::setupUI() {
-  // Establecer el título de la ventana
   setWindowTitle("MESI Protocol Simulator");
 
-  // Crear los widgets
-  titleLabel = new QLabel("MESI Protocol");
-  QFont titleFont = titleLabel->font();
-  titleFont.setPointSize(16);
-  titleLabel->setFont(titleFont);
-
-  instructionLabel = new QLabel(
-      "Use los botones para ejecutar operaciones en los CPUs. Mantenga "
-      "presionada la tecla CTRL para seleccionar múltiples acciones.");
-
-  busCycleLabel = new QLabel("Bus Cycles: 0");
-
-  // Tabla de memoria compartida
-  memoryTableWidget = new QTableWidget(16, 2);  // 16 filas, 2 columnas
-  memoryTableWidget->setHorizontalHeaderLabels(QStringList()
-                                               << "Address" << "Data");
-  memoryTableWidget->verticalHeader()->setVisible(false);
-  memoryTableWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
-
-  // Tablas de cachés
-  cache0TableWidget = new QTableWidget(8, 3);  // 8 bloques, 3 columnas
-  cache0TableWidget->setHorizontalHeaderLabels(QStringList()
-                                               << "Tag" << "Data" << "State");
-  cache0TableWidget->verticalHeader()->setVisible(false);
-  cache0TableWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
-
-  cache1TableWidget = new QTableWidget(8, 3);
-  cache1TableWidget->setHorizontalHeaderLabels(QStringList()
-                                               << "Tag" << "Data" << "State");
-  cache1TableWidget->verticalHeader()->setVisible(false);
-  cache1TableWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
-
-  // Campos de dirección y valor
-  addressLineEdit = new QLineEdit();
-  addressLineEdit->setPlaceholderText("Address");
-  valueLineEdit = new QLineEdit();
-  valueLineEdit->setPlaceholderText("Value");
-
-  // Botones
-  readButton = new QPushButton("Read");
-  writeButton = new QPushButton("Write");
-  resetButton = new QPushButton("Reset");
-  helpButton = new QPushButton("Help");
-
-  // Layout principal
   QWidget *centralWidget = new QWidget(this);
   QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
 
-  // Añadir los widgets al layout
+  // Título y instrucciones
+  titleLabel = new QLabel("MESI Protocol");
+  QFont titleFont = titleLabel->font();
+  titleFont.setPointSize(16);
+  titleFont.setBold(true);
+  titleLabel->setFont(titleFont);
+
+  instructionLabel = new QLabel(
+      "Like real hardware, the CPUs can operate in parallel. Try pressing a "
+      "button on different CPUs \"simultaneously\". Alternatively, select "
+      "buttons on different CPUs with the CTRL key and click on the last "
+      "button without CTRL to start simultaneous transactions.");
+
   mainLayout->addWidget(titleLabel);
   mainLayout->addWidget(instructionLabel);
 
-  // Layout de memoria y bus cycles
-  QHBoxLayout *memoryLayout = new QHBoxLayout();
-  memoryLayout->addWidget(new QLabel("MEMORY"));
-  memoryLayout->addWidget(memoryTableWidget);
-  memoryLayout->addStretch();
-  memoryLayout->addWidget(busCycleLabel);
+  // Crear la vista gráfica para los buses y otros elementos visuales
+  graphicsView = new QGraphicsView();
+  scene = new QGraphicsScene(0, 0, 1024, 640, this);
+  graphicsView->setScene(scene);
+  mainLayout->addWidget(graphicsView);
 
-  mainLayout->addLayout(memoryLayout);
+  // Crear representaciones gráficas
+  createMemoryDisplay();
+  createBusDisplay();
+  createCacheDisplays();
+  createCPUDisplays();
+  createControlButtons();
 
-  // Línea horizontal para representar el bus
-  QFrame *line = new QFrame();
-  line->setFrameShape(QFrame::HLine);
-  line->setFrameShadow(QFrame::Sunken);
-  mainLayout->addWidget(line);
-
-  // Layout de cachés
-  QHBoxLayout *cacheLayout = new QHBoxLayout();
-  QVBoxLayout *cache0Layout = new QVBoxLayout();
-  cache0Layout->addWidget(new QLabel("CACHE 0"));
-  cache0Layout->addWidget(cache0TableWidget);
-
-  QVBoxLayout *cache1Layout = new QVBoxLayout();
-  cache1Layout->addWidget(new QLabel("CACHE 1"));
-  cache1Layout->addWidget(cache1TableWidget);
-
-  cacheLayout->addLayout(cache0Layout);
-  cacheLayout->addLayout(cache1Layout);
-
-  mainLayout->addLayout(cacheLayout);
-
-  // Línea horizontal para representar el bus
-  QFrame *line2 = new QFrame();
-  line2->setFrameShape(QFrame::HLine);
-  line2->setFrameShadow(QFrame::Sunken);
-  mainLayout->addWidget(line2);
-
-  // Layout de CPUs y botones
-  QHBoxLayout *cpuLayout = new QHBoxLayout();
-
-  // CPU 0
-  QVBoxLayout *cpu0Layout = new QVBoxLayout();
-  cpu0Layout->addWidget(new QLabel("CPU 0"));
-  cpu0Layout->addWidget(addressLineEdit);
-  cpu0Layout->addWidget(valueLineEdit);
-  cpu0Layout->addWidget(readButton);
-  cpu0Layout->addWidget(writeButton);
-
-  // CPU 1 (puedes agregar botones adicionales si lo deseas)
-  QVBoxLayout *cpu1Layout = new QVBoxLayout();
-  cpu1Layout->addWidget(new QLabel("CPU 1"));
-  // Agrega botones y campos si quieres que CPU 1 sea interactivo
-
-  cpuLayout->addLayout(cpu0Layout);
-  cpuLayout->addLayout(cpu1Layout);
-
-  // Controles de ejecución
-  QVBoxLayout *controlLayout = new QVBoxLayout();
-  controlLayout->addWidget(resetButton);
-  controlLayout->addWidget(helpButton);
-
-  cpuLayout->addLayout(controlLayout);
-
-  mainLayout->addLayout(cpuLayout);
-
-  // Establecer el widget central
   setCentralWidget(centralWidget);
 }
 
-void MainWindow::on_readButton_clicked() {
-  int addr = addressLineEdit->text().toInt();
+void MainWindow::createMemoryDisplay() {
+  // Crear un rectángulo para la memoria
+  QGraphicsRectItem *memoryRect =
+      scene->addRect(412, 80, 200, 100, QPen(Qt::black), QBrush(Qt::lightGray));
+  QGraphicsTextItem *memoryLabel = scene->addText("MEMORY");
+  memoryLabel->setPos(472, 50);
 
-  // Procesador 0 lee desde la dirección
-  uint64_t data = cache0.load(addr, &systemBus);
+  // Tabla de memoria
+  memoryTableWidget = new QTableWidget(4, 2);
+  memoryTableWidget->setHorizontalHeaderLabels(QStringList() << "Address"
+                                                             << "Data");
+  memoryTableWidget->verticalHeader()->setVisible(false);
+  memoryTableWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  memoryTableWidget->setFixedSize(200, 100);
+
+  // Agregar la tabla a la escena
+  QGraphicsProxyWidget *memoryTableProxy = scene->addWidget(memoryTableWidget);
+  memoryTableProxy->setPos(412, 80);
+}
+
+void MainWindow::createBusDisplay() {
+  // Dibujar líneas que representan los buses
+  QPen addressBusPen(Qt::blue, 5);
+  scene->addLine(50, 290, 974, 290, addressBusPen);
+  QGraphicsTextItem *addressBusLabel = scene->addText("Address Bus");
+  addressBusLabel->setPos(60, 260);
+
+  QPen dataBusPen(Qt::red, 5);
+  scene->addLine(50, 330, 974, 330, dataBusPen);
+  QGraphicsTextItem *dataBusLabel = scene->addText("Data Bus");
+  dataBusLabel->setPos(60, 340);
+
+  QPen sharedBusPen(Qt::magenta, 3);
+  scene->addLine(50, 310, 974, 310, sharedBusPen);
+  QGraphicsTextItem *sharedBusLabel = scene->addText("Shared Bus");
+  sharedBusLabel->setPos(60, 280);
+}
+
+void MainWindow::createCacheDisplays() {
+  // Crear tablas para las cachés
+  int cacheXPositions[] = {100, 412, 724};
+  for (int i = 0; i < 3; ++i) {
+    QGraphicsRectItem *cacheRect =
+        scene->addRect(cacheXPositions[i], 380, 200, 100, QPen(Qt::black),
+                       QBrush(Qt::lightGray));
+    QGraphicsTextItem *cacheLabel = scene->addText(QString("CACHE %1").arg(i));
+    cacheLabel->setPos(cacheXPositions[i] + 70, 350);
+
+    QTableWidget *cacheTable = new QTableWidget(2, 3);
+    cacheTable->setHorizontalHeaderLabels(QStringList() << "Tag"
+                                                        << "Data"
+                                                        << "State");
+    cacheTable->verticalHeader()->setVisible(false);
+    cacheTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    cacheTable->setFixedSize(200, 100);
+
+    // Agregar la tabla a la escena
+    QGraphicsProxyWidget *cacheTableProxy = scene->addWidget(cacheTable);
+    cacheTableProxy->setPos(cacheXPositions[i], 380);
+
+    cacheTableWidgets.push_back(cacheTable);
+  }
+}
+
+void MainWindow::createCPUDisplays() {
+  // Crear botones para CPUs
+  int cpuXPositions[] = {100, 412, 724};
+  for (int cpuId = 0; cpuId < 3; ++cpuId) {
+    QGraphicsRectItem *cpuRect =
+        scene->addRect(cpuXPositions[cpuId], 500, 200, 100, QPen(Qt::black),
+                       QBrush(Qt::lightGray));
+    QGraphicsTextItem *cpuLabel = scene->addText(QString("CPU %1").arg(cpuId));
+    cpuLabel->setPos(cpuXPositions[cpuId] + 70, 470);
+
+    // Crear botones de lectura y escritura para direcciones 0 a 3
+    for (int addr = 0; addr < 4; ++addr) {
+      QPushButton *readButton = new QPushButton(QString("Read a%1").arg(addr));
+      readButton->setFixedSize(90, 25);
+
+      QPushButton *writeButton =
+          new QPushButton(QString("Write a%1").arg(addr));
+      writeButton->setFixedSize(90, 25);
+
+      // Agregar los botones a la escena
+      QGraphicsProxyWidget *readButtonProxy = scene->addWidget(readButton);
+      readButtonProxy->setPos(cpuXPositions[cpuId] + 5, 500 + addr * 25);
+
+      QGraphicsProxyWidget *writeButtonProxy = scene->addWidget(writeButton);
+      writeButtonProxy->setPos(cpuXPositions[cpuId] + 105, 500 + addr * 25);
+
+      cpuReadButtons.push_back(readButton);
+      cpuWriteButtons.push_back(writeButton);
+    }
+  }
+}
+
+void MainWindow::createControlButtons() {
+  // Crear botones de control
+  resetButton = new QPushButton("Reset");
+  helpButton = new QPushButton("Help");
+
+  resetButton->setFixedSize(100, 30);
+  helpButton->setFixedSize(100, 30);
+
+  // Agregar los botones a la escena
+  QGraphicsProxyWidget *resetButtonProxy = scene->addWidget(resetButton);
+  resetButtonProxy->setPos(900, 10);
+
+  QGraphicsProxyWidget *helpButtonProxy = scene->addWidget(helpButton);
+  helpButtonProxy->setPos(900, 50);
+
+  // Contador de ciclos de bus
+  busCycleLabel = new QLabel("Bus Cycles: 0");
+  busCycleLabel->setStyleSheet("font-weight: bold; font-size: 14px;");
+
+  // Agregar la etiqueta a la escena
+  QGraphicsProxyWidget *busCycleLabelProxy = scene->addWidget(busCycleLabel);
+  busCycleLabelProxy->setPos(850, 100);
+}
+
+void MainWindow::on_cpuReadButton_clicked(int cpuId, int address) {
+  // CPU realiza una operación de lectura
+  uint64_t data = caches[cpuId]->load(address, &systemBus);
 
   // Incrementar ciclos de bus si se generó una transacción
   busCycles++;
@@ -173,12 +217,11 @@ void MainWindow::on_readButton_clicked() {
   updateDisplays();
 }
 
-void MainWindow::on_writeButton_clicked() {
-  int addr = addressLineEdit->text().toInt();
-  uint64_t value = valueLineEdit->text().toULongLong();
-
-  // Procesador 0 escribe en la dirección
-  cache0.store(addr, value, &systemBus);
+void MainWindow::on_cpuWriteButton_clicked(int cpuId, int address) {
+  // CPU realiza una operación de escritura
+  uint64_t value =
+      busCycles;  // Valor de ejemplo, puedes modificarlo según tu lógica
+  caches[cpuId]->store(address, value, &systemBus);
 
   // Incrementar ciclos de bus
   busCycles++;
@@ -187,39 +230,24 @@ void MainWindow::on_writeButton_clicked() {
   updateDisplays();
 }
 
-// mainwindow.cpp
-void MainWindow::on_resetButton_clicked() {
-  // Reiniciar los objetos de simulación
-  sharedMemory.reset();
-  cache0.reset();
-  cache1.reset();
-  busCycles = 0;
-
-  // Actualizar la interfaz
-  updateDisplays();
-}
+void MainWindow::on_resetButton_clicked() { resetSimulation(); }
 
 void MainWindow::on_helpButton_clicked() {
   QMessageBox::information(
       this, "Help",
-      "Instrucciones de uso:\n\n- Ingrese la dirección en el campo "
-      "'Address'.\n- Ingrese el valor en el campo 'Value' (para escritura).\n- "
-      "Use 'Read' para leer desde la dirección especificada.\n- Use 'Write' "
-      "para escribir el valor en la dirección especificada.\n- Presione "
-      "'Reset' para reiniciar la simulación.\n\nPuede realizar operaciones "
-      "simultáneas en los CPUs utilizando los botones correspondientes.");
+      "Instructions:\n\n- Click on 'Read' or 'Write' buttons to perform "
+      "operations.\n- The simulation will show how the MESI protocol handles "
+      "cache coherence.\n- 'Reset' button will restart the simulation.");
 }
 
 void MainWindow::updateDisplays() {
   updateMemoryDisplay();
-  updateCacheDisplay();
+  updateCacheDisplays();
   updateBusCycleCount();
 }
 
 void MainWindow::updateMemoryDisplay() {
-  int numRows = memoryTableWidget->rowCount();
-
-  for (int addr = 0; addr < numRows; ++addr) {
+  for (int addr = 0; addr < 4; ++addr) {
     uint64_t value = sharedMemory.read(addr);
 
     QTableWidgetItem *addressItem = new QTableWidgetItem(QString::number(addr));
@@ -232,78 +260,60 @@ void MainWindow::updateMemoryDisplay() {
   }
 }
 
-void MainWindow::updateCacheDisplay() {
-  // Actualizar CACHE 0
-  for (int i = 0; i < cache0.getNumBlocks(); ++i) {
-    CacheBlock block = cache0.getBlock(i);
+void MainWindow::updateCacheDisplays() {
+  for (int cpuId = 0; cpuId < 3; ++cpuId) {
+    QTableWidget *cacheTable = cacheTableWidgets[cpuId];
+    Cache *cache = caches[cpuId];
 
-    QTableWidgetItem *tagItem =
-        new QTableWidgetItem(QString::number(block.tag));
-    tagItem->setTextAlignment(Qt::AlignCenter);
-    cache0TableWidget->setItem(i, 0, tagItem);
+    for (int i = 0; i < cache->getNumBlocks(); ++i) {
+      CacheBlock block = cache->getBlock(i);
 
-    QTableWidgetItem *dataItem =
-        new QTableWidgetItem(QString::number(block.data));
-    dataItem->setTextAlignment(Qt::AlignCenter);
-    cache0TableWidget->setItem(i, 1, dataItem);
+      QTableWidgetItem *tagItem =
+          new QTableWidgetItem(block.valid ? QString::number(block.tag) : "-");
+      tagItem->setTextAlignment(Qt::AlignCenter);
+      cacheTable->setItem(i, 0, tagItem);
 
-    QString stateStr;
-    switch (block.state) {
-      case MESIState::Modified:
-        stateStr = "M";
-        break;
-      case MESIState::Exclusive:
-        stateStr = "E";
-        break;
-      case MESIState::Shared:
-        stateStr = "S";
-        break;
-      case MESIState::Invalid:
-        stateStr = "I";
-        break;
+      QTableWidgetItem *dataItem =
+          new QTableWidgetItem(block.valid ? QString::number(block.data) : "-");
+      dataItem->setTextAlignment(Qt::AlignCenter);
+      cacheTable->setItem(i, 1, dataItem);
+
+      QString stateStr;
+      switch (block.state) {
+        case MESIState::Modified:
+          stateStr = "M";
+          break;
+        case MESIState::Exclusive:
+          stateStr = "E";
+          break;
+        case MESIState::Shared:
+          stateStr = "S";
+          break;
+        case MESIState::Invalid:
+          stateStr = "I";
+          break;
+      }
+
+      QTableWidgetItem *stateItem =
+          new QTableWidgetItem(block.valid ? stateStr : "-");
+      stateItem->setTextAlignment(Qt::AlignCenter);
+      cacheTable->setItem(i, 2, stateItem);
     }
-
-    QTableWidgetItem *stateItem = new QTableWidgetItem(stateStr);
-    stateItem->setTextAlignment(Qt::AlignCenter);
-    cache0TableWidget->setItem(i, 2, stateItem);
-  }
-
-  // Actualizar CACHE 1
-  for (int i = 0; i < cache1.getNumBlocks(); ++i) {
-    CacheBlock block = cache1.getBlock(i);
-
-    QTableWidgetItem *tagItem =
-        new QTableWidgetItem(QString::number(block.tag));
-    tagItem->setTextAlignment(Qt::AlignCenter);
-    cache1TableWidget->setItem(i, 0, tagItem);
-
-    QTableWidgetItem *dataItem =
-        new QTableWidgetItem(QString::number(block.data));
-    dataItem->setTextAlignment(Qt::AlignCenter);
-    cache1TableWidget->setItem(i, 1, dataItem);
-
-    QString stateStr;
-    switch (block.state) {
-      case MESIState::Modified:
-        stateStr = "M";
-        break;
-      case MESIState::Exclusive:
-        stateStr = "E";
-        break;
-      case MESIState::Shared:
-        stateStr = "S";
-        break;
-      case MESIState::Invalid:
-        stateStr = "I";
-        break;
-    }
-
-    QTableWidgetItem *stateItem = new QTableWidgetItem(stateStr);
-    stateItem->setTextAlignment(Qt::AlignCenter);
-    cache1TableWidget->setItem(i, 2, stateItem);
   }
 }
 
 void MainWindow::updateBusCycleCount() {
   busCycleLabel->setText(QString("Bus Cycles: %1").arg(busCycles));
+}
+
+void MainWindow::resetSimulation() {
+  // Reiniciar la memoria compartida y los cachés
+  sharedMemory.reset();
+  for (auto cache : caches) {
+    cache->reset();
+  }
+  busCycles = 0;
+
+  // Actualizar la interfaz
+  updateDisplays();
 }

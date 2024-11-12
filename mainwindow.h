@@ -3,6 +3,8 @@
 #define MAINWINDOW_H
 
 #include <QFrame>
+#include <QGraphicsScene>
+#include <QGraphicsView>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -27,11 +29,13 @@ class MainWindow : public QMainWindow {
   ~MainWindow();
 
  private slots:
-  void on_readButton_clicked();
-  void on_writeButton_clicked();
   void on_resetButton_clicked();
   void on_helpButton_clicked();
   void updateDisplays();
+
+  // Slots para botones de CPUs
+  void on_cpuReadButton_clicked(int cpuId, int address);
+  void on_cpuWriteButton_clicked(int cpuId, int address);
 
  private:
   // Widgets de la interfaz
@@ -39,15 +43,15 @@ class MainWindow : public QMainWindow {
   QLabel *instructionLabel;
   QLabel *busCycleLabel;
 
+  QGraphicsView *graphicsView;
+  QGraphicsScene *scene;
+
   QTableWidget *memoryTableWidget;
-  QTableWidget *cache0TableWidget;
-  QTableWidget *cache1TableWidget;
+  std::vector<QTableWidget *> cacheTableWidgets;
 
-  QLineEdit *addressLineEdit;
-  QLineEdit *valueLineEdit;
+  std::vector<QPushButton *> cpuReadButtons;
+  std::vector<QPushButton *> cpuWriteButtons;
 
-  QPushButton *readButton;
-  QPushButton *writeButton;
   QPushButton *resetButton;
   QPushButton *helpButton;
 
@@ -55,17 +59,23 @@ class MainWindow : public QMainWindow {
 
   // Objetos de simulación
   Bus systemBus;
-  Cache cache0;
-  Cache cache1;
+  std::vector<Cache *> caches;
   SharedMemory sharedMemory;
 
   int busCycles;
 
   // Funciones auxiliares
   void setupUI();
+  void createMemoryDisplay();
+  void createBusDisplay();
+  void createCacheDisplays();
+  void createCPUDisplays();
+  void createControlButtons();
+
   void updateMemoryDisplay();
-  void updateCacheDisplay();
+  void updateCacheDisplays();
   void updateBusCycleCount();
+  void resetSimulation();
 };
 
 #endif  // MAINWINDOW_H

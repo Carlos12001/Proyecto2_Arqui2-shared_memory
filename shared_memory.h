@@ -8,9 +8,10 @@
 class SharedMemory {
  public:
   SharedMemory(size_t size);
+
   uint64_t read(int address);
   void write(int address, uint64_t value);
-  void reset();  // Agrega esta línea
+  void reset();
 
  private:
   std::vector<uint64_t> _data;

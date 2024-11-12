@@ -5,15 +5,12 @@
 #include <mutex>
 #include <vector>
 
-#include "cache.h"
-
 class Cache;  // Declaración anticipada
 
 class Bus {
  public:
   Bus();
   void registerCache(Cache *cache);
-  void clearCaches();
 
   void sendBusRd(int addr, Cache *requester);
   void sendBusRdX(int addr, Cache *requester);

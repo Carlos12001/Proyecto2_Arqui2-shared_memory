@@ -1,11 +1,11 @@
 // bus.cpp
 #include "bus.h"
 
+#include "cache.h"
+
 Bus::Bus() {}
 
 void Bus::registerCache(Cache *cache) { caches.push_back(cache); }
-
-void Bus::clearCaches() { caches.clear(); }
 
 void Bus::sendBusRd(int addr, Cache *requester) {
   std::lock_guard<std::mutex> lock(bus_mutex);
