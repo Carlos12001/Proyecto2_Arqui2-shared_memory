@@ -1,4 +1,5 @@
 // mainwindow.h
+
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
@@ -8,7 +9,6 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QLineEdit>
 #include <QMainWindow>
 #include <QMessageBox>
 #include <QPushButton>
@@ -16,10 +16,12 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
-#include "PE.h"
 #include "bus.h"
 #include "cache.h"
 #include "shared_memory.h"
+
+const int NUM_CPUS =
+    4;  // Puedes cambiar este valor para ajustar el número de CPUs
 
 class MainWindow : public QMainWindow {
   Q_OBJECT
@@ -43,8 +45,8 @@ class MainWindow : public QMainWindow {
   QLabel *instructionLabel;
   QLabel *busCycleLabel;
 
-  QGraphicsView *graphicsView;
-  QGraphicsScene *scene;
+  QWidget *centralWidget;
+  QVBoxLayout *mainLayout;
 
   QTableWidget *memoryTableWidget;
   std::vector<QTableWidget *> cacheTableWidgets;
@@ -67,7 +69,6 @@ class MainWindow : public QMainWindow {
   // Funciones auxiliares
   void setupUI();
   void createMemoryDisplay();
-  void createBusDisplay();
   void createCacheDisplays();
   void createCPUDisplays();
   void createControlButtons();

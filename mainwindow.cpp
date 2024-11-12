@@ -1,23 +1,23 @@
+// mainwindow.cpp
+
 #include "mainwindow.h"
 
-#include <QGraphicsLineItem>
-#include <QGraphicsProxyWidget>
-#include <QGraphicsTextItem>
 #include <QHeaderView>
+#include <QScrollArea>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), sharedMemory(256), busCycles(0) {
   setupUI();
 
   // Crear cachés y registrarlas en el bus
-  for (int i = 0; i < 3; ++i) {
+  for (int i = 0; i < NUM_CPUS; ++i) {
     Cache *cache = new Cache(8, &sharedMemory);
     caches.push_back(cache);
     systemBus.registerCache(cache);
   }
 
   // Conectar los botones de CPUs
-  for (int cpuId = 0; cpuId < 3; ++cpuId) {
+  for (int cpuId = 0; cpuId < NUM_CPUS; ++cpuId) {
     for (int addr = 0; addr < 4; ++addr) {
       connect(cpuReadButtons[cpuId * 4 + addr], &QPushButton::clicked,
               [=]() { on_cpuReadButton_clicked(cpuId, addr); });
@@ -51,8 +51,8 @@ MainWindow::~MainWindow() {
 void MainWindow::setupUI() {
   setWindowTitle("MESI Protocol Simulator");
 
-  QWidget *centralWidget = new QWidget(this);
-  QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
+  centralWidget = new QWidget(this);
+  mainLayout = new QVBoxLayout(centralWidget);
 
   // Título y instrucciones
   titleLabel = new QLabel("MESI Protocol");
@@ -70,15 +70,8 @@ void MainWindow::setupUI() {
   mainLayout->addWidget(titleLabel);
   mainLayout->addWidget(instructionLabel);
 
-  // Crear la vista gráfica para los buses y otros elementos visuales
-  graphicsView = new QGraphicsView();
-  scene = new QGraphicsScene(0, 0, 1024, 640, this);
-  graphicsView->setScene(scene);
-  mainLayout->addWidget(graphicsView);
-
   // Crear representaciones gráficas
   createMemoryDisplay();
-  createBusDisplay();
   createCacheDisplays();
   createCPUDisplays();
   createControlButtons();
@@ -87,123 +80,102 @@ void MainWindow::setupUI() {
 }
 
 void MainWindow::createMemoryDisplay() {
-  // Crear un rectángulo para la memoria
-  QGraphicsRectItem *memoryRect =
-      scene->addRect(412, 80, 200, 100, QPen(Qt::black), QBrush(Qt::lightGray));
-  QGraphicsTextItem *memoryLabel = scene->addText("MEMORY");
-  memoryLabel->setPos(472, 50);
+  QGroupBox *memoryGroup = new QGroupBox("Shared Memory");
+  QVBoxLayout *memoryLayout = new QVBoxLayout(memoryGroup);
 
   // Tabla de memoria
   memoryTableWidget = new QTableWidget(4, 2);
-  memoryTableWidget->setHorizontalHeaderLabels(QStringList() << "Address"
-                                                             << "Data");
+  memoryTableWidget->setHorizontalHeaderLabels(QStringList()
+                                               << "Address" << "Data");
   memoryTableWidget->verticalHeader()->setVisible(false);
   memoryTableWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
-  memoryTableWidget->setFixedSize(200, 100);
+  memoryTableWidget->horizontalHeader()->setSectionResizeMode(
+      QHeaderView::Stretch);
+  memoryTableWidget->setFixedHeight(150);
 
-  // Agregar la tabla a la escena
-  QGraphicsProxyWidget *memoryTableProxy = scene->addWidget(memoryTableWidget);
-  memoryTableProxy->setPos(412, 80);
-}
+  memoryLayout->addWidget(memoryTableWidget);
 
-void MainWindow::createBusDisplay() {
-  // Dibujar líneas que representan los buses
-  QPen addressBusPen(Qt::blue, 5);
-  scene->addLine(50, 290, 974, 290, addressBusPen);
-  QGraphicsTextItem *addressBusLabel = scene->addText("Address Bus");
-  addressBusLabel->setPos(60, 260);
-
-  QPen dataBusPen(Qt::red, 5);
-  scene->addLine(50, 330, 974, 330, dataBusPen);
-  QGraphicsTextItem *dataBusLabel = scene->addText("Data Bus");
-  dataBusLabel->setPos(60, 340);
-
-  QPen sharedBusPen(Qt::magenta, 3);
-  scene->addLine(50, 310, 974, 310, sharedBusPen);
-  QGraphicsTextItem *sharedBusLabel = scene->addText("Shared Bus");
-  sharedBusLabel->setPos(60, 280);
+  mainLayout->addWidget(memoryGroup);
 }
 
 void MainWindow::createCacheDisplays() {
-  // Crear tablas para las cachés
-  int cacheXPositions[] = {100, 412, 724};
-  for (int i = 0; i < 3; ++i) {
-    QGraphicsRectItem *cacheRect =
-        scene->addRect(cacheXPositions[i], 380, 200, 100, QPen(Qt::black),
-                       QBrush(Qt::lightGray));
-    QGraphicsTextItem *cacheLabel = scene->addText(QString("CACHE %1").arg(i));
-    cacheLabel->setPos(cacheXPositions[i] + 70, 350);
+  QGroupBox *cachesGroup = new QGroupBox("Caches");
+  QHBoxLayout *cachesLayout = new QHBoxLayout(cachesGroup);
+
+  for (int i = 0; i < NUM_CPUS; ++i) {
+    QGroupBox *cacheGroup = new QGroupBox(QString("Cache %1").arg(i));
+    QVBoxLayout *cacheLayout = new QVBoxLayout(cacheGroup);
 
     QTableWidget *cacheTable = new QTableWidget(2, 3);
-    cacheTable->setHorizontalHeaderLabels(QStringList() << "Tag"
-                                                        << "Data"
-                                                        << "State");
+    cacheTable->setHorizontalHeaderLabels(QStringList()
+                                          << "Tag" << "Data" << "State");
     cacheTable->verticalHeader()->setVisible(false);
     cacheTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    cacheTable->setFixedSize(200, 100);
+    cacheTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    cacheTable->setFixedHeight(150);
 
-    // Agregar la tabla a la escena
-    QGraphicsProxyWidget *cacheTableProxy = scene->addWidget(cacheTable);
-    cacheTableProxy->setPos(cacheXPositions[i], 380);
+    cacheLayout->addWidget(cacheTable);
+    cachesLayout->addWidget(cacheGroup);
 
     cacheTableWidgets.push_back(cacheTable);
   }
+
+  // Añadir una barra de desplazamiento si hay muchas cachés
+  QScrollArea *scrollArea = new QScrollArea;
+  scrollArea->setWidgetResizable(true);
+  scrollArea->setWidget(cachesGroup);
+
+  mainLayout->addWidget(scrollArea);
 }
 
 void MainWindow::createCPUDisplays() {
-  // Crear botones para CPUs
-  int cpuXPositions[] = {100, 412, 724};
-  for (int cpuId = 0; cpuId < 3; ++cpuId) {
-    QGraphicsRectItem *cpuRect =
-        scene->addRect(cpuXPositions[cpuId], 500, 200, 100, QPen(Qt::black),
-                       QBrush(Qt::lightGray));
-    QGraphicsTextItem *cpuLabel = scene->addText(QString("CPU %1").arg(cpuId));
-    cpuLabel->setPos(cpuXPositions[cpuId] + 70, 470);
+  QGroupBox *cpusGroup = new QGroupBox("CPUs");
+  QHBoxLayout *cpusLayout = new QHBoxLayout(cpusGroup);
+
+  for (int cpuId = 0; cpuId < NUM_CPUS; ++cpuId) {
+    QGroupBox *cpuGroup = new QGroupBox(QString("CPU %1").arg(cpuId));
+    QVBoxLayout *cpuLayout = new QVBoxLayout(cpuGroup);
 
     // Crear botones de lectura y escritura para direcciones 0 a 3
     for (int addr = 0; addr < 4; ++addr) {
       QPushButton *readButton = new QPushButton(QString("Read a%1").arg(addr));
-      readButton->setFixedSize(90, 25);
+      readButton->setFixedSize(100, 30);
+      cpuLayout->addWidget(readButton);
 
       QPushButton *writeButton =
           new QPushButton(QString("Write a%1").arg(addr));
-      writeButton->setFixedSize(90, 25);
-
-      // Agregar los botones a la escena
-      QGraphicsProxyWidget *readButtonProxy = scene->addWidget(readButton);
-      readButtonProxy->setPos(cpuXPositions[cpuId] + 5, 500 + addr * 25);
-
-      QGraphicsProxyWidget *writeButtonProxy = scene->addWidget(writeButton);
-      writeButtonProxy->setPos(cpuXPositions[cpuId] + 105, 500 + addr * 25);
+      writeButton->setFixedSize(100, 30);
+      cpuLayout->addWidget(writeButton);
 
       cpuReadButtons.push_back(readButton);
       cpuWriteButtons.push_back(writeButton);
     }
+
+    cpusLayout->addWidget(cpuGroup);
   }
+
+  // Añadir una barra de desplazamiento si hay muchas CPUs
+  QScrollArea *scrollArea = new QScrollArea;
+  scrollArea->setWidgetResizable(true);
+  scrollArea->setWidget(cpusGroup);
+
+  mainLayout->addWidget(scrollArea);
 }
 
 void MainWindow::createControlButtons() {
-  // Crear botones de control
+  QHBoxLayout *controlLayout = new QHBoxLayout;
+
   resetButton = new QPushButton("Reset");
   helpButton = new QPushButton("Help");
 
-  resetButton->setFixedSize(100, 30);
-  helpButton->setFixedSize(100, 30);
+  controlLayout->addWidget(resetButton);
+  controlLayout->addWidget(helpButton);
 
-  // Agregar los botones a la escena
-  QGraphicsProxyWidget *resetButtonProxy = scene->addWidget(resetButton);
-  resetButtonProxy->setPos(900, 10);
-
-  QGraphicsProxyWidget *helpButtonProxy = scene->addWidget(helpButton);
-  helpButtonProxy->setPos(900, 50);
-
-  // Contador de ciclos de bus
   busCycleLabel = new QLabel("Bus Cycles: 0");
   busCycleLabel->setStyleSheet("font-weight: bold; font-size: 14px;");
+  controlLayout->addWidget(busCycleLabel);
 
-  // Agregar la etiqueta a la escena
-  QGraphicsProxyWidget *busCycleLabelProxy = scene->addWidget(busCycleLabel);
-  busCycleLabelProxy->setPos(850, 100);
+  mainLayout->addLayout(controlLayout);
 }
 
 void MainWindow::on_cpuReadButton_clicked(int cpuId, int address) {
@@ -261,7 +233,7 @@ void MainWindow::updateMemoryDisplay() {
 }
 
 void MainWindow::updateCacheDisplays() {
-  for (int cpuId = 0; cpuId < 3; ++cpuId) {
+  for (int cpuId = 0; cpuId < NUM_CPUS; ++cpuId) {
     QTableWidget *cacheTable = cacheTableWidgets[cpuId];
     Cache *cache = caches[cpuId];
 
