@@ -1,29 +1,35 @@
+// bus.cpp
 #include "bus.h"
-#include <iostream>
 
 Bus::Bus() {}
 
-void Bus::registerCache(Cache* cache) {
-    caches.push_back(cache);
+void Bus::registerCache(Cache *cache) { caches.push_back(cache); }
+
+void Bus::clearCaches() { caches.clear(); }
+
+void Bus::sendBusRd(int addr, Cache *requester) {
+  std::lock_guard<std::mutex> lock(bus_mutex);
+  for (auto cache : caches) {
+    if (cache != requester) {
+      cache->snoopBusRd(addr);
+    }
+  }
 }
 
-void Bus::sendBusRd(int addr) {
-    std::lock_guard<std::mutex> lock(bus_mutex);
-    for (auto cache : caches) {
-        cache->snoopBusRd(addr);
+void Bus::sendBusRdX(int addr, Cache *requester) {
+  std::lock_guard<std::mutex> lock(bus_mutex);
+  for (auto cache : caches) {
+    if (cache != requester) {
+      cache->snoopBusRdX(addr);
     }
+  }
 }
 
-void Bus::sendBusRdX(int addr) {
-    std::lock_guard<std::mutex> lock(bus_mutex);
-    for (auto cache : caches) {
-        cache->snoopBusRdX(addr);
+void Bus::sendBusUpgr(int addr, Cache *requester) {
+  std::lock_guard<std::mutex> lock(bus_mutex);
+  for (auto cache : caches) {
+    if (cache != requester) {
+      cache->snoopBusUpgr(addr);
     }
-}
-
-void Bus::sendBusUpgr(int addr) {
-    std::lock_guard<std::mutex> lock(bus_mutex);
-    for (auto cache : caches) {
-        cache->snoopBusUpgr(addr);
-    }
+  }
 }

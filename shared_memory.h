@@ -1,20 +1,20 @@
+// shared_memory.h
 #ifndef SHARED_MEMORY_H
 #define SHARED_MEMORY_H
 
-#include <vector>
 #include <mutex>
-#include <thread>
+#include <vector>
 
 class SharedMemory {
-    public:
-        SharedMemory(size_t size);
+ public:
+  SharedMemory(size_t size);
+  uint64_t read(int address);
+  void write(int address, uint64_t value);
+  void reset();  // Agrega esta línea
 
-        uint64_t read(int address);
-        void write(int address, uint64_t value);
-
-    private:
-        std::vector<uint64_t> _data; // Vector que simula la memoria con datos de 64 bits
-        std::mutex _mutex;           // Mutex para sincronizar el acceso a la memoria
+ private:
+  std::vector<uint64_t> _data;
+  std::mutex _mutex;
 };
 
-#endif // SHARED_MEMORY_H
+#endif  // SHARED_MEMORY_H
